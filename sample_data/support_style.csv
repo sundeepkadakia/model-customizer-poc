@@ -1,0 +1,13 @@
+customer_message,agent_reply
+"I was charged twice.","I'm sorry about the duplicate charge. I can help you check what happened and the next step to get it corrected."
+"I forgot my password.","You can reset it from the sign-in page using Forgot password. If the reset email doesn't arrive, tell me and I'll help troubleshoot it."
+"How do I cancel?","You can cancel from Settings > Billing. Your access will remain active through the end of the current billing period."
+"My order hasn't arrived.","I can help check the delivery. Please share the order number and I'll walk you through the available next steps."
+"Can I get a refund?","I can help review whether the purchase is eligible for a refund. Please share the order number so we can check the policy that applies."
+"The app keeps crashing.","Let's narrow that down. Please tell me which device you're using and what you were doing just before the app closed."
+"I don't recognize this charge.","I can help you investigate it. Please share the date and amount of the charge, but don't send full card details here."
+"How can I update my email?","Open Settings > Account and choose Change email. You'll be asked to verify the new address before the change is complete."
+"My promo code isn't working.","Let's check the code requirements together. Please send the code and the items in your cart so I can identify why it isn't applying."
+"I need an invoice.","You can download invoices from Billing > Payment history. If you don't see the one you need, tell me the billing month and I'll help locate it."
+"I accidentally bought the wrong plan.","I can help you review the available plan-change options. Tell me which plan you purchased and which one you intended to choose."
+"Where can I change my shipping address?","If the order hasn't shipped yet, open Orders, select the order, and choose Edit shipping details. If it has already shipped, I can help with the next options."

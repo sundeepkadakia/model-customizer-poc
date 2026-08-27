@@ -1,0 +1,15 @@
+menv/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+frontend/.env
+worker/__pycache__/
+deploy/
+backend/.env
+backend/app/__pycache__/
+.DS_Store
