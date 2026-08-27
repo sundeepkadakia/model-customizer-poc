@@ -24,7 +24,107 @@ function Step({number, title, children, complete=false}) {
   </section>
 }
 
-function App(){
+const FEATURES = [
+  {number:'01', title:'Bring your best examples', text:'Upload the support replies, sales conversations, or domain answers that already represent your best work.'},
+  {number:'02', title:'We handle the training', text:'Your data is normalized, split for validation, and used to create a lightweight model customization on cloud GPUs.'},
+  {number:'03', title:'Prove the improvement', text:'Compare the base and customized model on examples it never saw during training before you put it to work.'},
+];
+
+function Brand(){
+  return <a className="brand" href="#/" aria-label="Model Customizer home">
+    <span className="brandMark"><i/><i/><i/></span>
+    <span>Model<span>Customizer</span></span>
+  </a>;
+}
+
+function SiteNav({route}){
+  return <nav className="siteNav">
+    <Brand/>
+    <div className="navLinks">
+      <a className={route==='about'?'active':''} href="#/about">About</a>
+      <a className={route==='pricing'?'active':''} href="#/pricing">Pricing</a>
+      <a href="mailto:hello@modelcustomizer.ai">Contact</a>
+    </div>
+    <a className="navCta" href="#/customize">Start customizing <span>→</span></a>
+  </nav>;
+}
+
+function SiteFooter(){
+  return <footer className="siteFooter">
+    <Brand/>
+    <p>Make AI work the way your business does.</p>
+    <div><a href="#/about">About</a><a href="#/pricing">Pricing</a><a href="mailto:hello@modelcustomizer.ai">Contact</a></div>
+    <small>© {new Date().getFullYear()} Model Customizer</small>
+  </footer>;
+}
+
+function Home(){
+  return <>
+    <section className="hero">
+      <div className="heroGlow heroGlowOne"/><div className="heroGlow heroGlowTwo"/>
+      <div className="heroContent">
+        <div className="heroBadge"><span/> AI that learns how you work</div>
+        <h1>Your expertise.<br/><em>A better AI.</em></h1>
+        <p>Turn your best examples into a customized AI model—without managing training code, GPUs, or machine-learning infrastructure.</p>
+        <div className="heroActions">
+          <a className="primaryCta" href="#/customize">Customize your model <span>→</span></a>
+          <a className="textCta" href="#/about">See how it works <span>↓</span></a>
+        </div>
+        <div className="trustLine"><span>✓ No ML expertise required</span><span>✓ Keep control of your model</span><span>✓ Validate before deployment</span></div>
+      </div>
+      <div className="modelVisual" aria-hidden="true">
+        <div className="orbit orbitOne"/><div className="orbit orbitTwo"/><div className="orbit orbitThree"/>
+        <div className="modelCore"><span>YOUR</span><strong>AI</strong><small>customized</small></div>
+        <div className="dataChip chipOne">Your examples <b>↗</b></div>
+        <div className="dataChip chipTwo">Measured quality <b>✓</b></div>
+        <div className="dataChip chipThree">Ready to use <b>→</b></div>
+      </div>
+    </section>
+
+    <section className="proofBar"><p>Built for teams that need AI to understand</p><div><span>Customer support</span><span>Specialized knowledge</span><span>Brand voice</span><span>Repeatable workflows</span></div></section>
+
+    <section className="howSection">
+      <div className="sectionEyebrow">A clearer path to a better model</div>
+      <h2>From examples to evidence<br/>in three simple steps.</h2>
+      <div className="featureGrid">{FEATURES.map(feature=><article key={feature.number}>
+        <span>{feature.number}</span><div className="featureIcon">{feature.number==='01'?'↥':feature.number==='02'?'✦':'↗'}</div>
+        <h3>{feature.title}</h3><p>{feature.text}</p>
+      </article>)}</div>
+    </section>
+
+    <section className="outcomeSection">
+      <div><div className="sectionEyebrow">The important difference</div><h2>Customization you can measure.</h2><p>Training is only useful if the result is actually better. Model Customizer keeps part of your data unseen, then evaluates the customized model against the original.</p><a className="primaryCta dark" href="#/customize">Build your first model <span>→</span></a></div>
+      <div className="resultCard"><div className="resultTop"><span>VALIDATION RESULT</span><b>Held-out examples</b></div><div className="resultScore"><span>Reference fit</span><strong>+38<small>%</small></strong></div><div className="resultBars"><i style={{width:'54%'}}/><i className="improved" style={{width:'82%'}}/></div><div className="resultLegend"><span>Base model</span><span>Customized</span></div></div>
+    </section>
+
+    <section className="closingCta"><span className="sectionEyebrow">Early access</span><h2>Your best work can teach<br/>your next AI model.</h2><p>Start with the examples you already have. We’ll help with the rest.</p><a className="primaryCta" href="#/customize">Start customizing <span>→</span></a></section>
+  </>;
+}
+
+function About(){
+  return <div className="innerPage">
+    <header className="pageHero"><div className="sectionEyebrow">About Model Customizer</div><h1>AI should adapt to your business—not the other way around.</h1><p>We’re building the simplest trustworthy path from real business examples to a model that performs better at a specific job.</p></header>
+    <section className="storyGrid"><div><span>Why we exist</span><h2>The gap between a general model and your work is where value gets lost.</h2></div><div><p>General-purpose AI is impressive, but it does not automatically know your standards, your voice, your policies, or what a great answer looks like for your customers.</p><p>Fine-tuning can close that gap, but today it asks teams to understand datasets, model settings, GPU infrastructure, and evaluation. That keeps useful customization out of reach for many businesses.</p><p>Model Customizer turns that technical process into a guided product. You describe the outcome, provide examples, and see evidence of whether the model improved.</p></div></section>
+    <section className="principles"><div className="sectionEyebrow">How we build</div><h2>Three principles guide the product.</h2><div className="principleGrid"><article><b>01</b><h3>Plain language first</h3><p>Customers should describe the business outcome, not tune machine-learning jargon.</p></article><article><b>02</b><h3>Evidence over promises</h3><p>Every customization should be tested on examples the model did not train on.</p></article><article><b>03</b><h3>Control stays with you</h3><p>Your data, customization, and deployment choices should remain visible and portable.</p></article></div></section>
+    <section className="pageCta"><h2>Help shape the product.</h2><p>We’re inviting early teams to customize real workflows and tell us where the experience needs to improve.</p><a className="primaryCta" href="#/customize">Try the early product <span>→</span></a></section>
+  </div>;
+}
+
+const PLANS = [
+  {name:'Explorer', price:'Free', sub:'For testing your first use case', features:['1 active project','Up to 100 examples','Standard training run','Base vs. customized comparison'], cta:'Start free'},
+  {name:'Builder', price:'$99', unit:'/ month', sub:'For individuals and small teams', features:['5 active projects','Up to 1,000 examples','Smart training configuration','Held-out evaluation report','API access'], cta:'Join early access', featured:true},
+  {name:'Company', price:'Custom', sub:'For production workflows', features:['Unlimited team members','Larger private datasets','Dedicated model options','Priority training and support','Deployment guidance'], cta:'Talk to us'},
+];
+
+function Pricing(){
+  return <div className="innerPage pricingPage">
+    <header className="pageHero centered"><div className="sectionEyebrow">Simple, transparent plans</div><h1>Start small. Scale when the model proves its value.</h1><p>Early-access pricing is designed to help you validate a real use case before making a larger commitment.</p></header>
+    <section className="pricingGrid">{PLANS.map(plan=><article className={plan.featured?'featured':''} key={plan.name}>{plan.featured&&<div className="popular">MOST POPULAR</div>}<h3>{plan.name}</h3><p>{plan.sub}</p><div className="price">{plan.price}<small>{plan.unit}</small></div><a className={plan.featured?'primaryCta':'planCta'} href={plan.name==='Company'?'mailto:hello@modelcustomizer.ai':'#/customize'}>{plan.cta} <span>→</span></a><ul>{plan.features.map(x=><li key={x}>✓ <span>{x}</span></li>)}</ul></article>)}</section>
+    <p className="pricingNote">GPU usage limits and final pricing may change during early access. We’ll always show the expected cost before a paid training run.</p>
+  </div>;
+}
+
+function CustomizerApp(){
   const [project,setProject]=useState(null);
   const [name,setName]=useState('Support Agent');
   const [goal,setGoal]=useState('Respond like our best support representative while staying concise and helpful.');
@@ -201,8 +301,8 @@ function App(){
     return `${improvement >= 0 ? '+' : ''}${improvement}%`;
   }, [improvement]);
 
-  return <main>
-    <header>
+  return <main className="customizerMain">
+    <header className="customizerHeader">
       <div className="eyebrow">MODEL CUSTOMIZER · MVP 0.2</div>
       <h1>Make any AI better for <span>your job.</span></h1>
       <p className="sub">Bring examples in the format you already have. We normalize them, train a small adapter, hold examples back, and show whether the customized model actually fits your desired behavior better.</p>
@@ -293,7 +393,7 @@ function App(){
       <p className="sectioncopy">
         Training runs on a cloud GPU using a lightweight LoRA adapter. We keep the first run small so you can validate the customization before scaling up.
       </p>
-      <button disabled={!dataset||busy||job?.status==='running'} onClick={train}>{job?.status==='running'?'Training…': trained?'Retrain customization':'Train customization'}</button>
+      <button disabled={!dataset||busy||['queued','running'].includes(job?.status)} onClick={train}>{['queued','running'].includes(job?.status)?(job.status==='queued'?'Queued…':'Training…'): trained?'Retrain customization':'Train customization'}</button>
       {job && <div className={`job ${job.status}`}><span>{job.status}</span>{job.status==='failed' && <pre>{job.log}</pre>}</div>}
     </Step>
 
@@ -329,8 +429,19 @@ function App(){
       {tunedResponse && <article className="singleResponse"><div className="articleLabel">TUNED ENDPOINT RESPONSE</div><pre>{tunedResponse}</pre></article>}
     </Step>
 
-    <footer>Flexible outside. Strict inside. Measurable before deployment.</footer>
+    <footer className="productFooter">Flexible outside. Strict inside. Measurable before deployment.</footer>
   </main>
+}
+
+function App(){
+  const getRoute=()=>window.location.hash.replace(/^#\/?/,'') || 'home';
+  const [route,setRoute]=useState(getRoute);
+  useEffect(()=>{const onHash=()=>{setRoute(getRoute());window.scrollTo(0,0)};window.addEventListener('hashchange',onHash);return()=>window.removeEventListener('hashchange',onHash)},[]);
+  return <div className="siteShell">
+    <SiteNav route={route}/>
+    {route==='about'?<About/>:route==='pricing'?<Pricing/>:route==='customize'?<CustomizerApp/>:<Home/>}
+    <SiteFooter/>
+  </div>;
 }
 
 createRoot(document.getElementById('root')).render(<App/>);
