@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function membershipId(organizationId) {
+      return organizationId + '_' + request.auth.uid;
+    }
+
+    function isMember(organizationId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/memberships/$(membershipId(organizationId)))
+        && get(/databases/$(database)/documents/memberships/$(membershipId(organizationId))).data.status == 'active';
+    }
+
+    function isOrganizationManager(organizationId) {
+      return isMember(organizationId)
+        && get(/databases/$(database)/documents/memberships/$(membershipId(organizationId))).data.role in ['owner', 'admin'];
+    }
+
+    match /users/{uid} {
+      allow create, read, update: if isSelf(uid);
+      allow delete: if false;
+    }
+
+    match /organizations/{organizationId} {
+      allow create: if signedIn()
+        && request.resource.data.owner_id == request.auth.uid
+        && request.resource.data.type in ['individual', 'company'];
+      allow read: if isMember(organizationId);
+      allow update: if isOrganizationManager(organizationId);
+      allow delete: if false;
+    }
+
+    match /memberships/{membershipId} {
+      allow create: if signedIn() && (
+        (request.resource.data.user_id == request.auth.uid
+          && request.resource.data.role == 'owner'
+          && getAfter(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data.owner_id == request.auth.uid)
+        || isOrganizationManager(request.resource.data.organization_id)
+      );
+      allow read: if signedIn() && (
+        resource.data.user_id == request.auth.uid
+        || isOrganizationManager(resource.data.organization_id)
+      );
+      allow update: if isOrganizationManager(resource.data.organization_id);
+      allow delete: if false;
+    }
+
+    // Projects and jobs are accessed through the authenticated Cloud Run API.
+    // Firebase Admin bypasses client rules after verifying the user's ID token.
+    match /projects/{projectId} {
+      allow read, write: if false;
+    }
+
+    match /jobs/{jobId} {
+      allow read, write: if false;
+    }
+
+    match /invitations/{invitationId} {
+      allow read: if signedIn() && resource.data.email == request.auth.token.email;
+      allow write: if false;
+    }
+  }
+}

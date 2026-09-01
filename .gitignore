@@ -13,3 +13,5 @@ deploy/
 backend/.env
 backend/app/__pycache__/
 .DS_Store
+.agents
+.firebase

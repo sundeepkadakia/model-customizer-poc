@@ -1,5 +1,8 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import {createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateProfile} from 'firebase/auth';
+import {doc, serverTimestamp, writeBatch} from 'firebase/firestore';
+import {auth, db, firebaseConfigured} from './firebase';
 import './style.css';
 
 const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -8,13 +11,21 @@ console.log("VITE_API_URL:", import.meta.env.VITE_API_URL);
 console.log("Resolved API:", API);
 
 async function api(path, options={}) {
-  const r = await fetch(`${API}${path}`, options);
+  const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers = new Headers(options.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const r = await fetch(`${API}${path}`, {...options, headers});
   const body = await r.json().catch(() => ({}));
   if (!r.ok) {
     const message = body?.detail?.message || body?.detail || body?.message || `Request failed (${r.status})`;
     throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
   }
   return body;
+}
+
+function jobPollDelay(status){
+  if(document.hidden)return 15000;
+  return status==='queued'?5000:8000;
 }
 
 function Step({number, title, children, complete=false}) {
@@ -37,7 +48,7 @@ function Brand(){
   </a>;
 }
 
-function SiteNav({route}){
+function SiteNav({route,user,onSignOut}){
   return <nav className="siteNav">
     <Brand/>
     <div className="navLinks">
@@ -45,7 +56,10 @@ function SiteNav({route}){
       <a className={route==='pricing'?'active':''} href="#/pricing">Pricing</a>
       <a href="mailto:hello@modelcustomizer.ai">Contact</a>
     </div>
-    <a className="navCta" href="#/customize">Start customizing <span>→</span></a>
+    <div className="navAccount">
+      {user&&<button className="accountButton" onClick={onSignOut} title="Sign out">{(user.displayName||user.email||'A').slice(0,1).toUpperCase()}<span>Sign out</span></button>}
+      <a className="navCta" href={user?'#/customize':'#/account'}>{user?'Open workspace':'Sign in'} <span>→</span></a>
+    </div>
   </nav>;
 }
 
@@ -124,7 +138,86 @@ function Pricing(){
   </div>;
 }
 
-function CustomizerApp(){
+function Account({onAuthenticated}){
+  const [view,setView]=useState('signin');
+  const [accountType,setAccountType]=useState('individual');
+  const [name,setName]=useState('');
+  const [company,setCompany]=useState('');
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [message,setMessage]=useState('');
+  const [error,setError]=useState('');
+
+  async function submit(e){
+    e.preventDefault();setBusy(true);setError('');setMessage('');
+    try{
+      if(!firebaseConfigured) throw new Error('Firebase is not configured yet. Add the VITE_FIREBASE_* values to frontend/.env.');
+      if(view==='reset'){
+        await sendPasswordResetEmail(auth,email);
+        setMessage('Password reset instructions have been sent.');
+        return;
+      }
+      if(view==='register'){
+        const credential=await createUserWithEmailAndPassword(auth,email,password);
+        await updateProfile(credential.user,{displayName:name});
+        const workspaceId=accountType==='individual'?`personal_${credential.user.uid}`:crypto.randomUUID();
+        const batch=writeBatch(db);
+        batch.set(doc(db,'users',credential.user.uid),{
+          uid:credential.user.uid,email,name,
+          default_workspace_id:workspaceId,
+          created_at:serverTimestamp(),updated_at:serverTimestamp()
+        });
+        batch.set(doc(db,'organizations',workspaceId),{
+          id:workspaceId,
+          name:accountType==='company'?company:`${name}'s workspace`,
+          type:accountType,
+          owner_id:credential.user.uid,
+          plan:'explorer',status:'active',
+          created_at:serverTimestamp(),updated_at:serverTimestamp()
+        });
+        batch.set(doc(db,'memberships',`${workspaceId}_${credential.user.uid}`),{
+          id:`${workspaceId}_${credential.user.uid}`,
+          organization_id:workspaceId,
+          user_id:credential.user.uid,
+          role:'owner',status:'active',
+          joined_at:serverTimestamp(),updated_at:serverTimestamp()
+        });
+        await batch.commit();
+        onAuthenticated();
+      }else{
+        await signInWithEmailAndPassword(auth,email,password);
+        onAuthenticated();
+      }
+    }catch(e){
+      const friendly={
+        'auth/email-already-in-use':'An account already exists for this email.',
+        'auth/invalid-credential':'The email or password is incorrect.',
+        'auth/weak-password':'Use a password with at least six characters.',
+        'auth/invalid-email':'Enter a valid email address.'
+      };
+      setError(friendly[e.code]||e.message);
+    }finally{setBusy(false)}
+  }
+
+  const title=view==='register'?'Create your account':view==='reset'?'Reset your password':'Welcome back';
+  return <div className="accountPage"><div className="accountIntro"><div className="sectionEyebrow">Your model workspace</div><h1>Build AI around<br/><em>your standards.</em></h1><p>Keep projects organized, return to training runs, and manage your customized models in one secure workspace.</p><div className="accountBenefits"><span>✓ Private projects</span><span>✓ Saved training progress</span><span>✓ Individual or company workspace</span></div></div>
+    <div className="authCard"><div className="authCardHead"><span className="brandMark"><i/><i/><i/></span><h2>{title}</h2><p>{view==='register'?'Start with the free Explorer plan.':view==='reset'?'We’ll email you a secure reset link.':'Sign in to continue to your models.'}</p></div>
+      {!firebaseConfigured&&<div className="authNotice">Firebase configuration is required before accounts can be used.</div>}
+      {error&&<div className="formError">{error}</div>}{message&&<div className="formSuccess">{message}</div>}
+      <form onSubmit={submit}>
+        {view==='register'&&<><div className="accountType"><button type="button" className={accountType==='individual'?'active':''} onClick={()=>setAccountType('individual')}>Individual</button><button type="button" className={accountType==='company'?'active':''} onClick={()=>setAccountType('company')}>Company</button></div><label>Your name</label><input required value={name} onChange={e=>setName(e.target.value)} placeholder="Sundeep Kadakia"/>{accountType==='company'&&<><label>Company name</label><input required value={company} onChange={e=>setCompany(e.target.value)} placeholder="Company, Inc."/></>}</>}
+        <label>Email address</label><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com"/>
+        {view!=='reset'&&<><label>Password</label><input type="password" minLength="6" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters"/></>}
+        {view==='signin'&&<button className="forgotLink" type="button" onClick={()=>{setView('reset');setError('');setMessage('')}}>Forgot password?</button>}
+        <button className="authSubmit" disabled={busy} type="submit">{busy?'Please wait…':view==='register'?'Create account':view==='reset'?'Send reset link':'Sign in'} <span>→</span></button>
+      </form>
+      <div className="authSwitch">{view==='register'?<>Already have an account? <button onClick={()=>setView('signin')}>Sign in</button></>:view==='reset'?<button onClick={()=>setView('signin')}>← Back to sign in</button>:<>New to Model Customizer? <button onClick={()=>setView('register')}>Create an account</button></>}</div>
+    </div>
+  </div>;
+}
+
+function CustomizerApp({user}){
   const [project,setProject]=useState(null);
   const [name,setName]=useState('Support Agent');
   const [goal,setGoal]=useState('Respond like our best support representative while staying concise and helpful.');
@@ -152,30 +245,41 @@ function CustomizerApp(){
     api('/projects')
       .then(setProjects)
       .catch(e => setError(e.message));
-  }, []);
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!job || !['queued','running'].includes(job.status)) return;
-    const timer = setInterval(async () => {
+    let cancelled=false;
+    let timer;
+    const poll=async()=>{
       try {
         const x = await api(`/jobs/${job.id}`);
+        if(cancelled)return;
         setJob(x);
         setStatus(`Training ${x.status}`);
         if (x.status === 'completed') {
           const fresh = await api(`/projects/${project.id}`);
+          if(cancelled)return;
           setProject(fresh);
           setStatus('Training completed. Your adapter is ready.');
         }
-      } catch (e) { setError(e.message); }
-    }, 2000);
-    return () => clearInterval(timer);
+        if(['queued','running'].includes(x.status))timer=setTimeout(poll,jobPollDelay(x.status));
+      } catch (e) {
+        if(!cancelled){setError(e.message);timer=setTimeout(poll,15000)}
+      }
+    };
+    timer=setTimeout(poll,jobPollDelay(job.status));
+    return () => {cancelled=true;clearTimeout(timer)};
   }, [job?.id, job?.status, project?.id]);
 
   useEffect(() => {
     if (!evalJob || !['queued','running'].includes(evalJob.status)) return;
-    const timer = setInterval(async () => {
+    let cancelled=false;
+    let timer;
+    const poll=async()=>{
       try {
         const x = await api(`/jobs/${evalJob.id}`);
+        if(cancelled)return;
         setEvalJob(x);
         if (x.status === 'completed') {
           setEvaluation(x.result);
@@ -183,26 +287,37 @@ function CustomizerApp(){
         } else if (x.status === 'failed') {
           setError(x.log || 'Evaluation failed');
         }
-      } catch (e) { setError(e.message); }
-    }, 2000);
-    return () => clearInterval(timer);
+        if(['queued','running'].includes(x.status))timer=setTimeout(poll,jobPollDelay(x.status));
+      } catch (e) {
+        if(!cancelled){setError(e.message);timer=setTimeout(poll,15000)}
+      }
+    };
+    timer=setTimeout(poll,jobPollDelay(evalJob.status));
+    return () => {cancelled=true;clearTimeout(timer)};
   }, [evalJob?.id, evalJob?.status]);
 
 
   useEffect(() => {
     if (!opJob || !['queued','running'].includes(opJob.status)) return;
-    const timer = setInterval(async () => {
+    let cancelled=false;
+    let timer;
+    const poll=async()=>{
       try {
         const x = await api(`/jobs/${opJob.id}`);
+        if(cancelled)return;
         setOpJob(x);
         if (x.status === 'completed') {
           if (x.kind === 'comparison') setComparison(x.result);
           if (x.kind === 'generation') setTunedResponse(x.result?.response || '');
           setStatus(x.kind === 'comparison' ? 'Comparison ready.' : 'Tuned response generated.');
         } else if (x.status === 'failed') setError(x.error || 'GPU job failed');
-      } catch (e) { setError(e.message); }
-    }, 2500);
-    return () => clearInterval(timer);
+        if(['queued','running'].includes(x.status))timer=setTimeout(poll,jobPollDelay(x.status));
+      } catch (e) {
+        if(!cancelled){setError(e.message);timer=setTimeout(poll,15000)}
+      }
+    };
+    timer=setTimeout(poll,jobPollDelay(opJob.status));
+    return () => {cancelled=true;clearTimeout(timer)};
   }, [opJob?.id, opJob?.status]);
 
   async function run(action){
@@ -256,6 +371,18 @@ function CustomizerApp(){
       const fresh=await api(`/projects/${project.id}`); setProject(fresh);
       setStatus(`${x.examples} examples normalized: ${x.train_examples} train + ${x.eval_examples} held out.`);
     });
+  }
+
+  function chooseDatasetFile(candidate){
+    if(!candidate)return;
+    const extension=candidate.name.split('.').pop()?.toLowerCase();
+    if(!['csv','json','jsonl'].includes(extension)){
+      setFile(null);
+      setError('Choose a CSV, JSON, or JSONL dataset file.');
+      return;
+    }
+    setError('');
+    setFile(candidate);
   }
 
   async function train(){
@@ -365,7 +492,28 @@ function CustomizerApp(){
         <button className={mode==='prompt_response'?'choice active':'choice'} onClick={()=>setMode('prompt_response')}>Prompt + ideal response</button>
         <button className={mode==='conversation'?'choice active':'choice'} onClick={()=>setMode('conversation')}>Conversations</button>
       </div>
-      <input type="file" accept=".jsonl,.json,.csv" onChange={e=>setFile(e.target.files[0])}/>
+      <div
+        className="filePicker"
+        onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy'}}
+        onDrop={e=>{e.preventDefault();chooseDatasetFile(e.dataTransfer.files?.[0])}}
+      >
+        <label className="filePickerButton" htmlFor="dataset-file">
+          <span className="filePickerIcon">↥</span>
+          {file?'Choose a different file':'Choose dataset file'}
+          <input
+            id="dataset-file"
+            className="fileInputOverlay"
+            type="file"
+            accept=".jsonl,.json,.csv,application/json,text/csv,application/x-ndjson"
+            onChange={e=>chooseDatasetFile(e.target.files?.[0])}
+          />
+        </label>
+        <div className={file?'fileName selected':'fileName'}>
+          {file?<><strong>{file.name}</strong><span>{Math.max(1,Math.round(file.size/1024))} KB · ready to upload</span></>:<><strong>No file selected</strong><span>CSV, JSON, or JSONL</span></>}
+        </div>
+        {file&&<button type="button" className="clearFile" onClick={()=>setFile(null)}>Remove</button>}
+      </div>
+      <div className="dropHint">You can also drag and drop the dataset anywhere inside the box above.</div>
       <p className="hint">
         {dataset
           ? 'Upload a new CSV, JSON, or JSONL file only if you want to replace the existing dataset. Common columns such as '
@@ -436,10 +584,22 @@ function CustomizerApp(){
 function App(){
   const getRoute=()=>window.location.hash.replace(/^#\/?/,'') || 'home';
   const [route,setRoute]=useState(getRoute);
+  const [user,setUser]=useState(null);
+  const [authReady,setAuthReady]=useState(!firebaseConfigured);
   useEffect(()=>{const onHash=()=>{setRoute(getRoute());window.scrollTo(0,0)};window.addEventListener('hashchange',onHash);return()=>window.removeEventListener('hashchange',onHash)},[]);
+  useEffect(()=>{
+    if(!auth)return;
+    return onAuthStateChanged(auth,next=>{setUser(next);setAuthReady(true)});
+  },[]);
+  useEffect(()=>{
+    if(authReady&&route==='customize'&&!user) window.location.hash='/account';
+    if(authReady&&route==='account'&&user) window.location.hash='/customize';
+  },[authReady,route,user]);
+  async function handleSignOut(){await signOut(auth);window.location.hash='/'}
+  if(!authReady)return <div className="authLoading"><span className="brandMark"><i/><i/><i/></span><p>Loading your workspace…</p></div>;
   return <div className="siteShell">
-    <SiteNav route={route}/>
-    {route==='about'?<About/>:route==='pricing'?<Pricing/>:route==='customize'?<CustomizerApp/>:<Home/>}
+    <SiteNav route={route} user={user} onSignOut={handleSignOut}/>
+    {route==='about'?<About/>:route==='pricing'?<Pricing/>:route==='account'?<Account onAuthenticated={()=>window.location.hash='/customize'}/>:route==='customize'&&user?<CustomizerApp user={user}/>:<Home/>}
     <SiteFooter/>
   </div>;
 }

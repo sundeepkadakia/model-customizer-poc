@@ -27,9 +27,28 @@ class FirestoreRepo:
         snap = self.db.collection("projects").document(project_id).get()
         return snap.to_dict() if snap.exists else None
 
-    def list_projects(self) -> list[dict]:
-        docs = self.db.collection("projects").order_by("created_at", direction=firestore.Query.DESCENDING).stream()
+    def list_memberships(self, user_id: str) -> list[dict]:
+        docs = self.db.collection("memberships").where("user_id", "==", user_id).where("status", "==", "active").stream()
         return [d.to_dict() for d in docs]
+
+    def get_membership(self, organization_id: str, user_id: str) -> dict | None:
+        snap = self.db.collection("memberships").document(f"{organization_id}_{user_id}").get()
+        membership = snap.to_dict() if snap.exists else None
+        return membership if membership and membership.get("status") == "active" else None
+
+    def get_organization(self, organization_id: str) -> dict | None:
+        snap = self.db.collection("organizations").document(organization_id).get()
+        return snap.to_dict() if snap.exists else None
+
+    def list_projects(self, organization_ids: list[str]) -> list[dict]:
+        if not organization_ids:
+            return []
+        projects: list[dict] = []
+        for start in range(0, len(organization_ids), 30):
+            chunk = organization_ids[start:start + 30]
+            docs = self.db.collection("projects").where("organization_id", "in", chunk).stream()
+            projects.extend(d.to_dict() for d in docs)
+        return sorted(projects, key=lambda x: x.get("created_at", ""), reverse=True)
 
     def update_project(self, project_id: str, **fields: Any) -> None:
         fields["updated_at"] = now_iso()

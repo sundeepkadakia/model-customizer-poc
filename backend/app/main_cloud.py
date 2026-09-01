@@ -10,8 +10,11 @@ from pathlib import Path
 from typing import Any, Iterable, Literal
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import firebase_admin
+from firebase_admin import auth as firebase_auth
 from pydantic import BaseModel, Field
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
@@ -24,12 +27,25 @@ origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173,h
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 repo = FirestoreRepo()
 store = GCSStore()
+if not firebase_admin._apps:
+    firebase_admin.initialize_app()
+bearer = HTTPBearer(auto_error=False)
+
+
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict:
+    if not credentials or credentials.scheme.lower() != "bearer":
+        raise HTTPException(401, "Sign in is required")
+    try:
+        return firebase_auth.verify_id_token(credentials.credentials, check_revoked=True)
+    except Exception:
+        raise HTTPException(401, "Your session is invalid or has expired")
 
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     goal: str = Field(min_length=3, max_length=1000)
     base_model: str = "Qwen/Qwen3-4B"
+    organization_id: str | None = None
 
 
 class TrainRequest(BaseModel):
@@ -50,16 +66,33 @@ CONVERSATION_ALIASES = ["messages","conversation","chat","turns"]
 SYSTEM_ALIASES = ["system","system_prompt","instructions"]
 
 
-def get_project(pid: str) -> dict:
+def get_project(pid: str, owner_id: str | None = None) -> dict:
     x = repo.get_project(pid)
     if not x: raise HTTPException(404, "Project not found")
+    if owner_id and not repo.get_membership(x.get("organization_id", ""), owner_id):
+        raise HTTPException(404, "Project not found")
     return x
 
 
-def create_job(pid: str, kind: str, payload: dict) -> dict:
+def user_memberships(user_id: str) -> list[dict]:
+    return repo.list_memberships(user_id)
+
+
+def resolve_organization(user_id: str, requested_id: str | None = None) -> str:
+    memberships = user_memberships(user_id)
+    if requested_id:
+        if any(x.get("organization_id") == requested_id for x in memberships):
+            return requested_id
+        raise HTTPException(403, "You do not have access to this workspace")
+    if not memberships:
+        raise HTTPException(409, "Finish setting up your account workspace")
+    return memberships[0]["organization_id"]
+
+
+def create_job(pid: str, kind: str, payload: dict, owner_id: str, organization_id: str) -> dict:
     jid = str(uuid.uuid4()); ts = now_iso()
     remote = RunPodClient().run_async(payload)
-    job = {"id": jid, "project_id": pid, "kind": kind, "status": "queued", "provider": "runpod", "provider_job_id": remote["id"], "created_at": ts, "updated_at": ts}
+    job = {"id": jid, "project_id": pid, "organization_id": organization_id, "owner_id": owner_id, "kind": kind, "status": "queued", "provider": "runpod", "provider_job_id": remote["id"], "created_at": ts, "updated_at": ts}
     return repo.create_job(job)
 
 
@@ -144,19 +177,32 @@ def jsonl(rows: list[dict]) -> str:
 def health(): return {"ok":True,"version":app.version,"storage":"gcs","database":"firestore","gpu":"runpod"}
 
 @app.get("/projects")
-def projects(): return repo.list_projects()
+def projects(user: dict = Depends(current_user)):
+    organization_ids = [x["organization_id"] for x in user_memberships(user["uid"])]
+    return repo.list_projects(organization_ids)
+
+@app.get("/me")
+def me(user: dict = Depends(current_user)):
+    memberships = user_memberships(user["uid"])
+    workspaces = []
+    for membership in memberships:
+        organization = repo.get_organization(membership["organization_id"])
+        if organization:
+            workspaces.append({"organization": organization, "membership": membership})
+    return {"uid": user["uid"], "email": user.get("email"), "workspaces": workspaces}
 
 @app.get("/projects/{pid}")
-def project(pid:str): return get_project(pid)
+def project(pid:str,user:dict=Depends(current_user)): return get_project(pid,user["uid"])
 
 @app.post("/projects")
-def create_project(req: ProjectCreate):
-    pid=str(uuid.uuid4()); ts=now_iso(); doc={"id":pid,"name":req.name,"goal":req.goal,"base_model":req.base_model,"status":"created","created_at":ts,"updated_at":ts}
+def create_project(req: ProjectCreate,user:dict=Depends(current_user)):
+    organization_id=resolve_organization(user["uid"],req.organization_id)
+    pid=str(uuid.uuid4()); ts=now_iso(); doc={"id":pid,"organization_id":organization_id,"created_by":user["uid"],"name":req.name,"goal":req.goal,"base_model":req.base_model,"status":"created","created_at":ts,"updated_at":ts}
     return repo.create_project(doc)
 
 @app.post("/projects/{pid}/dataset")
-async def upload_dataset(pid:str,file:UploadFile=File(...),mode:Literal["auto","prompt_response","conversation"]=Form("auto"),prompt_field:str|None=Form(None),response_field:str|None=Form(None)):
-    get_project(pid); raw=await file.read(); rows=parse_upload(file.filename or "dataset.jsonl",raw); normalized,mapping=normalize_rows(rows,mode,prompt_field,response_field); train,evals=split_examples(normalized)
+async def upload_dataset(pid:str,file:UploadFile=File(...),mode:Literal["auto","prompt_response","conversation"]=Form("auto"),prompt_field:str|None=Form(None),response_field:str|None=Form(None),user:dict=Depends(current_user)):
+    get_project(pid,user["uid"]); raw=await file.read(); rows=parse_upload(file.filename or "dataset.jsonl",raw); normalized,mapping=normalize_rows(rows,mode,prompt_field,response_field); train,evals=split_examples(normalized)
     prefix=f"projects/{pid}/datasets/current"
     raw_uri=store.upload_bytes(f"{prefix}/source/{file.filename or 'dataset'}",raw,file.content_type or "application/octet-stream")
     normalized_uri=store.upload_text(f"{prefix}/normalized.jsonl",jsonl(normalized),"application/x-ndjson")
@@ -168,35 +214,35 @@ async def upload_dataset(pid:str,file:UploadFile=File(...),mode:Literal["auto","
     return {**manifest,"preview":normalized[:2]}
 
 @app.post("/projects/{pid}/train")
-def train(pid:str,req:TrainRequest):
-    p=get_project(pid); dataset=p.get("dataset") or {}
+def train(pid:str,req:TrainRequest,user:dict=Depends(current_user)):
+    p=get_project(pid,user["uid"]); dataset=p.get("dataset") or {}
     if not dataset.get("train_uri"): raise HTTPException(400,"Upload a dataset first")
     adapter_prefix=f"gs://{store.bucket_name}/projects/{pid}/adapters/current"
     payload={"task":"train","project_id":pid,"model":p["base_model"],"dataset_uri":dataset["train_uri"],"adapter_uri":adapter_prefix,"epochs":req.epochs,"learning_rate":req.learning_rate,"lora_rank":req.lora_rank,"max_length":req.max_length}
-    job=create_job(pid,"training",payload); repo.update_project(pid,status="training",pending_adapter_uri=adapter_prefix); return job
+    job=create_job(pid,"training",payload,user["uid"],p["organization_id"]); repo.update_project(pid,status="training",pending_adapter_uri=adapter_prefix); return job
 
 @app.post("/projects/{pid}/evaluate")
-def evaluate(pid:str):
-    p=get_project(pid); adapter=p.get("adapter_uri"); dataset=p.get("dataset") or {}
+def evaluate(pid:str,user:dict=Depends(current_user)):
+    p=get_project(pid,user["uid"]); adapter=p.get("adapter_uri"); dataset=p.get("dataset") or {}
     if not adapter: raise HTTPException(400,"Train the project first")
-    return create_job(pid,"evaluation",{"task":"evaluate","model":p["base_model"],"adapter_uri":adapter,"dataset_uri":dataset["eval_uri"],"max_new_tokens":50})
+    return create_job(pid,"evaluation",{"task":"evaluate","model":p["base_model"],"adapter_uri":adapter,"dataset_uri":dataset["eval_uri"],"max_new_tokens":50},user["uid"],p["organization_id"])
 
 @app.post("/projects/{pid}/compare")
-def compare(pid:str,req:PromptRequest):
-    p=get_project(pid)
+def compare(pid:str,req:PromptRequest,user:dict=Depends(current_user)):
+    p=get_project(pid,user["uid"])
     if not p.get("adapter_uri"): raise HTTPException(400,"Train the project first")
-    return create_job(pid,"comparison",{"task":"compare","model":p["base_model"],"adapter_uri":p["adapter_uri"],"prompt":req.prompt,"max_new_tokens":req.max_new_tokens})
+    return create_job(pid,"comparison",{"task":"compare","model":p["base_model"],"adapter_uri":p["adapter_uri"],"prompt":req.prompt,"max_new_tokens":req.max_new_tokens},user["uid"],p["organization_id"])
 
 @app.post("/projects/{pid}/generate")
-def generate(pid:str,req:PromptRequest):
-    p=get_project(pid)
+def generate(pid:str,req:PromptRequest,user:dict=Depends(current_user)):
+    p=get_project(pid,user["uid"])
     if not p.get("adapter_uri"): raise HTTPException(400,"Train the project first")
-    return create_job(pid,"generation",{"task":"generate","model":p["base_model"],"adapter_uri":p["adapter_uri"],"prompt":req.prompt,"max_new_tokens":req.max_new_tokens})
+    return create_job(pid,"generation",{"task":"generate","model":p["base_model"],"adapter_uri":p["adapter_uri"],"prompt":req.prompt,"max_new_tokens":req.max_new_tokens},user["uid"],p["organization_id"])
 
 @app.get("/jobs/{jid}")
-def job(jid:str):
+def job(jid:str,user:dict=Depends(current_user)):
     j=repo.get_job(jid)
-    if not j: raise HTTPException(404,"Job not found")
+    if not j or not repo.get_membership(j.get("organization_id", ""), user["uid"]): raise HTTPException(404,"Job not found")
     if j.get("status") in {"completed","failed"}: return j
     try: remote=RunPodClient().status(j["provider_job_id"])
     except Exception as e: return {**j,"provider_status_error":str(e)}

@@ -37,7 +37,7 @@ docker push \
 # 
 docker buildx build \
   --platform linux/amd64 \
-  -t us-west1-docker.pkg.dev/modelcustomizerplatform/model-customizer/model-customizer-api:v0.2 \
+  -t us-west1-docker.pkg.dev/modelcustomizerplatform/model-customizer/model-customizer-api:v0.3 \
   --push \
   .
 
@@ -45,7 +45,7 @@ docker buildx build \
 # Deploy the backend API to Google Cloud Run
 #
 gcloud run deploy model-customizer-api \
-  --image us-west1-docker.pkg.dev/modelcustomizerplatform/model-customizer/model-customizer-api:v0.2 \
+  --image us-west1-docker.pkg.dev/modelcustomizerplatform/model-customizer/model-customizer-api:v0.3 \
   --region us-west1 \
   --service-account="model-customizer-api@modelcustomizerplatform.iam.gserviceaccount.com" \
   --set-env-vars="^@^GCP_PROJECT_ID=modelcustomizerplatform@GCS_BUCKET=model-customizer-dev@RUNPOD_ENDPOINT_ID=yuuyg0gfkccm1n@CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173" \

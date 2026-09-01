@@ -41,6 +41,10 @@ gcloud iam service-accounts create model-customizer-api
 API_SA="model-customizer-api@${PROJECT_ID}.iam.gserviceaccount.com"
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$API_SA" --role="roles/datastore.user"
 gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" --member="serviceAccount:$API_SA" --role="roles/storage.objectAdmin"
+gcloud run services update model-customizer-api \
+  --project=modelcustomizerplatform \
+  --region=us-west1 \
+  --update-env-vars='^@^CORS_ORIGINS=https://modelcustomizerplatform.web.app,https://modelcustomizerplatform.firebaseapp.com,http://localhost:5173,http://127.0.0.1:5173'
 ```
 
 Store RunPod API key in Secret Manager:
